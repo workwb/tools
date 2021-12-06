@@ -5,10 +5,13 @@
 package imports
 
 import (
+	"bufio"
+	"bytes"
 	"context"
 	"flag"
 	"fmt"
 	"go/build"
+	"io"
 	"io/ioutil"
 	"log"
 	"path/filepath"
@@ -1251,6 +1254,47 @@ func TestReadFromFilesystem(t *testing.T) {
 		name    string
 		in, out string
 	}{
+		// golang.org/issue/7132
+		{
+			name: "new_section_for_dotless_import",
+			in: `package main
+
+import (
+"fmt"
+
+"gu"
+"golang.org/fake/packagea"
+
+"golang.org/fake/ccc"
+)
+
+var (
+a = packagea.A
+b = gu.A
+c = fmt.Printf
+d = ccc.A
+)
+`,
+			out: `package main
+
+import (
+	"fmt"
+
+	"gu"
+
+	"golang.org/fake/packagea"
+
+	"golang.org/fake/ccc"
+)
+
+var (
+	a = packagea.A
+	b = gu.A
+	c = fmt.Printf
+	d = ccc.A
+)
+`,
+		},
 		{
 			name: "works",
 			in: `package foo
@@ -1674,12 +1718,42 @@ func (t *goimportTest) processNonModule(file string, contents []byte, opts *Opti
 			return nil, err
 		}
 	}
+	contents = t.clearEmptyString(contents)
 	if opts == nil {
 		opts = &Options{Comments: true, TabIndent: true, TabWidth: 8}
 	}
 	// ProcessEnv is not safe for concurrent use. Make a copy.
 	opts.Env = t.env.CopyConfig()
 	return Process(file, contents, opts)
+}
+
+func (t *goimportTest) clearEmptyString(contents []byte) []byte {
+	// 处理 import 中的所有空行
+	rd := bufio.NewReader(bytes.NewReader(contents))
+	start := false
+	buf := bytes.NewBuffer([]byte{})
+	for {
+		a, _, c := rd.ReadLine()
+		if c == io.EOF {
+			break
+		}
+		if bytes.Contains(a, []byte("import (")) {
+			start = true
+			buf.Write(a)
+			buf.Write([]byte("\n"))
+			continue
+		}
+		if start && bytes.Equal(a, []byte("")) {
+			continue
+		}
+
+		if start && bytes.Contains(a, []byte(")")) {
+			start = false
+		}
+		buf.Write(a)
+		buf.Write([]byte("\n"))
+	}
+	return buf.Bytes()
 }
 
 func (t *goimportTest) assertProcessEquals(module, file string, contents []byte, opts *Options, want string) {

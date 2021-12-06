@@ -111,6 +111,8 @@ func processFile(filename string, in io.Reader, out io.Writer, argType argumentT
 		return err
 	}
 
+	src = clearEmptyString(src)
+
 	target := filename
 	if *srcdir != "" {
 		// Determine whether the provided -srcdirc is a directory or file
@@ -377,4 +379,35 @@ func isFile(name string) bool {
 func isDir(name string) bool {
 	fi, err := os.Stat(name)
 	return err == nil && fi.IsDir()
+}
+
+// clearEmptyString 清楚import的空行
+func clearEmptyString(contents []byte) []byte {
+	// 处理 import 中的所有空行
+	rd := bufio.NewReader(bytes.NewReader(contents))
+	start := false
+	buf := bytes.NewBuffer([]byte{})
+	for {
+		a, _, c := rd.ReadLine()
+		if c == io.EOF {
+			break
+		}
+		if bytes.Contains(a, []byte("import (")) {
+			start = true
+			buf.Write(a)
+			buf.Write([]byte("\n"))
+			continue
+		}
+
+		if start && bytes.Equal(bytes.TrimSpace(a), []byte("")) {
+			continue
+		}
+
+		if start && bytes.Contains(a, []byte(")")) {
+			start = false
+		}
+		buf.Write(a)
+		buf.Write([]byte("\n"))
+	}
+	return buf.Bytes()
 }
