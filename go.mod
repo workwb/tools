@@ -1,4 +1,4 @@
-module github.com/workwb/tools
+module golang.org/x/tools
 
 go 1.17
 
